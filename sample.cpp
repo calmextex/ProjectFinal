@@ -153,6 +153,7 @@ const GLfloat Colors[ ][3] =
 	{ 1., 0., 1. },		// magenta
 };
 
+
 // creating a struct for planets (Sun included here as well)
 struct planet
 {
@@ -189,7 +190,21 @@ struct planet Planets[] = {
 	{ "Neptune", "neptune.bmp",  3.88f, neptune, pow(neptune, 3./2.),  0.67f, 0, 0}
 };
 
+struct CameraPosition {
+	float posX, posY, posZ;
+	float lookAtX, lookAtY, lookAtZ;
+	float upX, upY, upZ;
+};
+
+CameraPosition CameraPositions[2];
+int CurrentCameraPosition = 0;
+
+float TimeScale = 1.f; // time scale at one
+
 const int NUM_PLANETS = sizeof(Planets) / sizeof(struct planet);
+
+// texture mode
+int TextureMode = 0;
 
 
 // fog parameters:
@@ -233,6 +248,8 @@ int		ShadowsOn;				// != 0 means to turn shadows on
 float	Time;					// used for animation, this has a value between 0. and 1.
 int		Xmouse, Ymouse;			// mouse values
 float	Xrot, Yrot;				// rotation angles in degrees
+GLuint  Stars;
+GLuint	StarSphereList;
 
 
 // function prototypes:
@@ -448,6 +465,13 @@ Display( )
 	glMatrixMode( GL_MODELVIEW );
 	glLoadIdentity( );
 
+	// setting up the camera position
+	CameraPosition& cp = CameraPositions[CurrentCameraPosition];
+	gluLookAt(cp.posX, cp.posY, cp.posZ,
+		cp.lookAtX, cp.lookAtY, cp.lookAtZ,
+		cp.upX, cp.upY, cp.upZ);
+
+
 	// set the eye position, look-at position, and up-vector:
 
 	gluLookAt( 0.f, 0.f, 3.f,     0.f, 0.f, 0.f,     0.f, 1.f, 0.f );
@@ -493,14 +517,44 @@ Display( )
 
 	glEnable(GL_TEXTURE_2D);
 
-	// draw the box object by calling up its display list:
+	// switch between GL_REPLACE and GL_MODULATE
+	switch (TextureMode) {
+		case 1:
+			glEnable(GL_TEXTURE_2D);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+			break;
+		case 2:
+			glEnable(GL_TEXTURE_2D);
+			glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+			break;
+	}
+	
+
+	// set the timing of the scene
 	int currentTime = glutGet(GLUT_ELAPSED_TIME);
-	float timeInSeconds = currentTime / 100.0f;
+	float timeInSeconds = currentTime / (1000.0f / TimeScale);
+
+
+	// drawing the giant sphere of stars
+	glPushMatrix();
+		glDisable(GL_LIGHTING);  
+		glDepthMask(GL_FALSE);   
+		glEnable(GL_TEXTURE_2D); 
+		glBindTexture(GL_TEXTURE_2D, Stars); 
+		glCallList(StarSphereList); 
+		glDepthMask(GL_TRUE);   
+		glEnable(GL_LIGHTING);   
+	glPopMatrix();
+
+	
 
 	for (int i = 0; i < NUM_PLANETS; i++)
 	{
 		glPushMatrix();
+
 			
+			// display the orbits for all planets except sun
+
 			if (i != 0) {
 				glCallList(Planets[i].orbitDisplay);
 			}
@@ -508,6 +562,7 @@ Display( )
 			// Apply scaled orbital radius and period
 			float logOrbit = Planets[i].orbitalPeriod > 0 ? 1.0f / (log(Planets[i].orbitalPeriod) / log(2.0f)) : 0;
 		
+			// rotate each planet and set in orbit
 			if (i != 0) 
 			{
 				float orbitAngle = (timeInSeconds * 360.0f) / (Planets[i].orbitalPeriod * logOrbit);
@@ -515,9 +570,12 @@ Display( )
 				glTranslatef(Planets[i].orbitalRadius * ORBITAL_RADIUS_SCALE, 0.0f, 0.0f);
 			}
 
+
 			// Apply scaled rotation period
 			float rotationAngle = (timeInSeconds * 360.0f) / (Planets[i].rotationPeriod * ROTATION_PERIOD_SCALE);
 			glRotatef(rotationAngle, 0.0f, 1.0f, 0.0f);
+
+
 
 			// Draw the planet with scaled size
 			glPushMatrix();
@@ -527,11 +585,15 @@ Display( )
 				glCallList(sphereList);
 			glPopMatrix();
 
-			
 
 		glPopMatrix();
 	}
-	
+
+
+	// Disable texture and lighting after drawing planets
+	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_LIGHTING);
+
 	
 #ifdef DEMO_Z_FIGHTING
 	if( DepthFightingOn != 0 )
@@ -894,6 +956,22 @@ InitGraphics( )
 	glEnable(GL_TEXTURE_2D);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
+	// set the lighting
+
+	glEnable(GL_LIGHTING);
+
+	glEnable(GL_LIGHT0);
+	GLfloat light_position[] = { 1.0, 1.0, 1.0, 0.0 };
+	GLfloat white_light[] = { 1.0, 1.0, 1.0, 1.0 };
+	GLfloat lmodel_ambient[] = { 0.2, 0.2, 0.2, 1.0 };
+
+	glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, white_light);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, white_light);
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, lmodel_ambient);
+
+
+	// assign the bmp files and. similar to project 5
 	for (int i = 0; i < NUM_PLANETS; i++) {
 		int width, height;
 		unsigned char* texture = BmpToTexture(Planets[i].textureFile, &width, &height);
@@ -901,7 +979,7 @@ InitGraphics( )
 			fprintf(stderr, "Cannot open texture '%s'\n", Planets[i].textureFile);
 		}
 		else {
-			fprintf(stderr, "Opened '%s': width = %d; height = %d", Planets[i].textureFile, width, height);
+			fprintf(stderr, "Opened '%s': width = %d; height = %d \n", Planets[i].textureFile, width, height);
 
 
 			glGenTextures(1, &Planets[i].textureObject);
@@ -914,7 +992,44 @@ InitGraphics( )
 			glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, texture);
 		}
 	}
-	
+	// setting the stars
+	int width, height;
+	unsigned char* starTextureData = BmpToTexture("stars.bmp", &width, &height);
+	if (starTextureData == NULL) {
+		fprintf(stderr, "Cannot open texture 'stars.bmp'\n");
+	}
+	else {
+		
+		glGenTextures(1, &Stars);
+		glBindTexture(GL_TEXTURE_2D, Stars);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, 3, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, starTextureData);
+	}
+	// camera at (0, 100, 0)
+	CameraPositions[0].posX = 0;
+	CameraPositions[0].posY = 100;
+	CameraPositions[0].posZ = 0;
+	CameraPositions[0].lookAtX = 0;
+	CameraPositions[0].lookAtY = 0;
+	CameraPositions[0].lookAtZ = 0;
+	CameraPositions[0].upX = 1;
+	CameraPositions[0].upY = 0;
+	CameraPositions[0].upZ = 0;
+
+	// Camera at (0, 18, -18) 
+	CameraPositions[1].posX = 0;
+	CameraPositions[1].posY = 18;
+	CameraPositions[1].posZ = 18;
+	CameraPositions[1].lookAtX = 0;
+	CameraPositions[1].lookAtY = -18;
+	CameraPositions[1].lookAtZ = 0;
+	CameraPositions[1].upX = 0;
+	CameraPositions[1].upY = 1;
+	CameraPositions[1].upZ = 0;
+
 }
 
 
@@ -946,6 +1061,8 @@ InitLists( )
 		glEndList();
 
 	}
+
+	// drawing the orbit on the screen.
 	for (int i = 0; i < NUM_PLANETS; i++) {
 		if (i != 0)
 		{
@@ -964,7 +1081,12 @@ InitLists( )
 			glEndList();
 		}
 	}
-
+	// create the giant sphere
+	StarSphereList = glGenLists(1);
+		glNewList(StarSphereList, GL_COMPILE);
+		glBindTexture(GL_TEXTURE_2D, Stars);
+		OsuSphere(1000.0f, 100, 100); // Large radius to encompass the scene
+	glEndList();
 
 	// create the axes:
 
@@ -1002,6 +1124,24 @@ Keyboard( unsigned char c, int x, int y )
 		case ESCAPE:
 			DoMainMenu( QUIT );	// will not return here
 			break;				// happy compiler
+		// change the camera position
+		case 'c':
+		case 'C':
+			CurrentCameraPosition = (CurrentCameraPosition + 1) % 2;
+			break;
+		case 't':
+		case 'T':
+			TimeScale *= 10.0f; // Increase the time scale
+			if (TimeScale > 100.0f) { // Cap the maximum time scale
+				TimeScale = 1.0f; // Reset to default
+			}
+			break;
+
+		case 'm':
+		case 'M':
+			TextureMode = (TextureMode == 1) ? 2 : 1; //toggling between the textures
+			break;
+
 
 		default:
 			fprintf( stderr, "Don't know what to do with keyboard hit: '%c' (0x%0x)\n", c, c );
